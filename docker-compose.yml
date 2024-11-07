@@ -1,0 +1,30 @@
+services:
+  # ユーザー管理サービス (Go)
+  user-service:
+    build:
+      context: ./services/user
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"
+    environment:
+      - DB_HOST=postgres
+      - DB_USER=fulove
+      - DB_PASSWORD=fulove_password
+      - DB_NAME=fulove_db
+    depends_on:
+      - postgres
+
+  # データベース
+  postgres:
+    image: postgres:latest
+    environment:
+      - POSTGRES_USER=fulove
+      - POSTGRES_PASSWORD=fulove_password
+      - POSTGRES_DB=fulove_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+volumes:
+  postgres_data:
