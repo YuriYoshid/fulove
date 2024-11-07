@@ -1,5 +1,4 @@
 services:
-  # ユーザー管理サービス (Go)
   user-service:
     build:
       context: ./services/user
@@ -10,21 +9,38 @@ services:
       - DB_HOST=postgres
       - DB_USER=fulove
       - DB_PASSWORD=fulove_password
-      - DB_NAME=fulove_db
+      - DB_NAME=fulove_db  # これが重要
+      - PORT=8080
     depends_on:
-      - postgres
+      postgres:
+        condition: service_healthy
+    networks:
+      - fulove-network
+    restart: always
 
-  # データベース
   postgres:
     image: postgres:latest
     environment:
       - POSTGRES_USER=fulove
       - POSTGRES_PASSWORD=fulove_password
-      - POSTGRES_DB=fulove_db
+      - POSTGRES_DB=fulove_db  # これを確認
     ports:
       - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U fulove -d fulove_db"]  # データベース名を指定
+      interval: 10s
+      timeout: 5s
+      retries: 5
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    networks:
+      - fulove-network
+    restart: always
 
 volumes:
   postgres_data:
+  
+
+networks:
+  fulove-network:
+    driver: bridge

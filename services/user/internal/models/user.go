@@ -5,18 +5,18 @@ import (
 )
 
 type User struct {
-    ID              uint      `json:"id" gorm:"primaryKey"`
-    Username        string    `json:"username" gorm:"unique;not null"`
-    Email           string    `json:"email" gorm:"unique;not null"`
-    Password        string    `json:"-" gorm:"not null"`  // JSONでは非表示
-    IconURL         string    `json:"icon_url"`
-    PreferredTime   string    `json:"preferred_time" gorm:"type:time"` // 希望入浴時間
-    Points          int       `json:"points" gorm:"default:0"`
-    LastBathTime    time.Time `json:"last_bath_time"`
-    CreatedAt       time.Time `json:"created_at"`
-    UpdatedAt       time.Time `json:"updated_at"`
+    ID          uint      `json:"id" gorm:"primaryKey"`
+    Email       string    `json:"email" gorm:"uniqueIndex;not null"`  // uniqueIndexを追加
+    Password    string    `json:"password" gorm:"not null"`           // jsonタグを修正
+    Username    string    `json:"username" gorm:"uniqueIndex"`        // uniqueIndexを追加
+    IconURL     string    `json:"icon_url"`
+    BathTimes   []BathTime `json:"bath_times" gorm:"foreignKey:UserID"`
+    Points      int       `json:"points" gorm:"default:0"`
+    CreatedAt   time.Time `json:"created_at"`
+    UpdatedAt   time.Time `json:"updated_at"`
 }
 
+// 入浴記録
 type BathRecord struct {
     ID          uint      `json:"id" gorm:"primaryKey"`
     UserID      uint      `json:"user_id"`
@@ -29,20 +29,33 @@ type BathRecord struct {
     User        User      `json:"user" gorm:"foreignKey:UserID"`
 }
 
+// 入浴予定時間
+type BathTime struct {
+    ID          uint      `json:"id" gorm:"primaryKey"`
+    UserID      uint      `json:"user_id"`
+    DayOfWeek   string    `json:"day_of_week"` // "monday", "tuesday", etc.
+    Time        string    `json:"time"`        // "HH:MM" format
+    CreatedAt   time.Time `json:"created_at"`
+    UpdatedAt   time.Time `json:"updated_at"`
+}
+
 type SignUpRequest struct {
-    Username        string `json:"username" binding:"required"`
-    Email           string `json:"email" binding:"required,email"`
-    Password        string `json:"password" binding:"required,min=6"`
-    IconURL         string `json:"icon_url"`
-    PreferredTime   string `json:"preferred_time" binding:"required"`
+    Email    string `json:"email" binding:"required,email"`
+    Password string `json:"password" binding:"required,min=6"`
 }
 
 type SignInRequest struct {
-    Email       string `json:"email" binding:"required,email"`
-    Password    string `json:"password" binding:"required"`
+    Email    string `json:"email" binding:"required,email"`
+    Password string `json:"password" binding:"required"`
+}
+
+type ProfileUpdateRequest struct {
+    Username  string            `json:"username" binding:"required"`
+    IconURL   string           `json:"icon_url"`
+    BathTimes map[string]string `json:"bath_times"` // {"monday": "21:00", "tuesday": "22:00", ...}
 }
 
 type AuthResponse struct {
-    Token    string `json:"token"`
-    User     User   `json:"user"`
+    Token string `json:"token"`
+    User  User   `json:"user"`
 }
