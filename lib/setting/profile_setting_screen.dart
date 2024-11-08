@@ -1,11 +1,8 @@
-import 'dart:io';
-import 'dart:html' as html;
-
-
 import 'package:flutter/material.dart';
 import 'package:fulove/auth/auth_service.dart';
-import 'package:fulove/upload_service/upload_service_web.dart';
-
+import 'package:fulove/upload_service/upload_service.dart';
+import 'dart:html' as html;
+import 'package:logging/logging.dart';  // ロギング用のパッケージを追加
 
 class ProfileSettingScreen extends StatefulWidget {
   final int userId;
@@ -20,10 +17,10 @@ class _ProfileSettingScreenState extends State<ProfileSettingScreen> {
   final _formKey = GlobalKey<FormState>();
   final _authService = AuthService();
   final _uploadService = UploadServiceWeb();
+  final _logger = Logger('ProfileSettingScreen');
 
   String? _iconUrl;
   String? _previewUrl;
-  
   String _username = '';
   final Map<String, TimeOfDay?> _bathTimes = {
     '月曜日': null,
@@ -36,6 +33,72 @@ class _ProfileSettingScreenState extends State<ProfileSettingScreen> {
   };
   bool _isLoading = false;
 
+  @override
+  void initState() {
+    super.initState();
+    Logger.root.level = Level.ALL;
+    Logger.root.onRecord.listen((record) {
+      debugPrint('${record.level.name}: ${record.time}: ${record.message}');
+    });
+  }
+
+  // 画像のソースを決定するヘルパーメソッド
+  ImageProvider? _getAvatarImage() {
+    if (_previewUrl != null) {
+      _logger.fine('Using preview URL: $_previewUrl');
+      return NetworkImage(_previewUrl!);
+    }
+    if (_iconUrl != null) {
+      final fullUrl = 'http://localhost:8080${_iconUrl!}';
+      _logger.fine('Using icon URL: $fullUrl');
+      return NetworkImage(fullUrl);
+    }
+    return null;
+  }
+
+  Future<void> _pickImage() async {
+    try {
+      final input = html.FileUploadInputElement()..accept = 'image/*';
+      input.click();
+
+      await input.onChange.first;
+      if (input.files?.isEmpty ?? true) return;
+
+      final file = input.files![0];
+      
+      // プレビューの作成
+      final reader = html.FileReader();
+      reader.readAsDataUrl(file);
+
+      await reader.onLoad.first;
+      setState(() {
+        _previewUrl = reader.result as String;
+      });
+
+      // 画像のアップロード
+      final imageUrl = await _uploadService.uploadImage(file);
+      _logger.info('Uploaded image URL: $imageUrl');
+
+      setState(() {
+        _iconUrl = imageUrl;
+        _previewUrl = 'http://localhost:8080$imageUrl';
+      });
+      
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('画像のアップロードが完了しました')),
+        );
+      }
+    } catch (e) {
+      _logger.severe('Error in _pickImage: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('画像のアップロードに失敗しました: $e')),
+        );
+      }
+    }
+  }
+
   Future<void> _selectTime(String day) async {
     final TimeOfDay? picked = await showTimePicker(
       context: context,
@@ -47,115 +110,6 @@ class _ProfileSettingScreenState extends State<ProfileSettingScreen> {
       });
     }
   }
-
-  Future<void> _pickImage() async {
-    // input要素の作成
-    final input = html.FileUploadInputElement()..accept = 'image/*';
-    input.click();
-
-    await input.onChange.first;
-    if (input.files?.isEmpty ?? true) return;
-
-    final file = input.files![0];
-    // プレビューの作成
-    final reader = html.FileReader();
-    reader.readAsDataUrl(file);
-
-    await reader.onLoad.first;
-    setState(() {
-      _previewUrl = reader.result as String;
-    });
-
-    try {
-      // 画像のアップロード
-      final imageUrl = await _uploadService.uploadImage(file);
-      setState(() {
-        _iconUrl = imageUrl;
-      });
-      
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('画像のアップロードが完了しました')),
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('画像のアップロードに失敗しました: $e')),
-        );
-      }
-    }
-  }
-
-Widget _buildAvatar() {
-    return Stack(
-      children: [
-        CircleAvatar(
-          radius: 50,
-          backgroundImage: _previewUrl != null 
-              ? NetworkImage(_previewUrl!)
-              : (_iconUrl != null ? NetworkImage(_iconUrl!) : null),
-          child: (_previewUrl == null && _iconUrl == null) 
-              ? const Icon(Icons.person, size: 50)
-              : null,
-        ),
-        Positioned(
-          bottom: 0,
-          right: 0,
-          child: Container(
-            decoration: BoxDecoration(
-              color: Theme.of(context).primaryColor,
-              shape: BoxShape.circle,
-            ),
-            child: IconButton(
-              onPressed: _pickImage,
-              icon: const Icon(Icons.camera_alt),
-              color: Colors.white,
-            ),
-          ),
-        ),
-      ],
-    );
-  }  Future<void> _saveProfile() async {
-  if (_formKey.currentState!.validate()) {
-    _formKey.currentState!.save();
-    setState(() => _isLoading = true);
-
-    try {
-      // timeOfDayを文字列に変換する関数
-      String timeToString(TimeOfDay? time) {
-        if (time == null) return '';
-        return '${time.hour.toString().padLeft(2, '0')}:${time.minute.toString().padLeft(2, '0')}';
-      }
-
-      // 入浴時間をMap<String, String>に変換
-      final Map<String, String> bathTimesStr = _bathTimes.map(
-        (key, value) => MapEntry(key.toLowerCase(), timeToString(value))
-      );
-
-      await _authService.updateProfile(
-        userId: widget.userId,
-        username: _username,
-        iconUrl: _iconUrl,
-        bathTimes: bathTimesStr,
-      );
-      
-      if (mounted) {
-        Navigator.pushReplacementNamed(context, '/home');
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('エラー: $e')),
-        );
-      }
-    } finally {
-      if (mounted) {
-        setState(() => _isLoading = false);
-      }
-    }
-  }
-}
 
   @override
   Widget build(BuildContext context) {
@@ -171,24 +125,29 @@ Widget _buildAvatar() {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              
               Center(
                 child: Stack(
                   children: [
                     CircleAvatar(
                       radius: 50,
-                      backgroundImage: _iconUrl != null ? NetworkImage(_iconUrl!) : null,
-                      child: _iconUrl == null ? const Icon(Icons.person, size: 50) : null,
+                      backgroundColor: Colors.grey[200],
+                      backgroundImage: _getAvatarImage(),
+                      child: (_previewUrl == null && _iconUrl == null) 
+                          ? const Icon(Icons.person, size: 50, color: Colors.grey)
+                          : null,
                     ),
                     Positioned(
                       bottom: 0,
                       right: 0,
-                      child: IconButton(
-                        onPressed: _pickImage,
-                        icon: const Icon(Icons.camera_alt),
-                        style: IconButton.styleFrom(
-                          backgroundColor: Theme.of(context).primaryColor,
-                          foregroundColor: Colors.white,
+                      child: Container(
+                        decoration: BoxDecoration(
+                          color: Theme.of(context).primaryColor,
+                          shape: BoxShape.circle,
+                        ),
+                        child: IconButton(
+                          onPressed: _pickImage,
+                          icon: const Icon(Icons.camera_alt),
+                          color: Colors.white,
                         ),
                       ),
                     ),
@@ -244,5 +203,45 @@ Widget _buildAvatar() {
         ),
       ),
     );
+  }
+
+  Future<void> _saveProfile() async {
+    if (_formKey.currentState!.validate()) {
+      _formKey.currentState!.save();
+      setState(() => _isLoading = true);
+
+      try {
+        String timeToString(TimeOfDay? time) {
+          if (time == null) return '';
+          return '${time.hour.toString().padLeft(2, '0')}:${time.minute.toString().padLeft(2, '0')}';
+        }
+
+        final Map<String, String> bathTimesStr = _bathTimes.map(
+          (key, value) => MapEntry(key.toLowerCase(), timeToString(value))
+        );
+
+        await _authService.updateProfile(
+          userId: widget.userId,
+          username: _username,
+          iconUrl: _iconUrl,
+          bathTimes: bathTimesStr,
+        );
+        
+        if (mounted) {
+          Navigator.pushReplacementNamed(context, '/home');
+        }
+      } catch (e) {
+        _logger.severe('Error saving profile: $e');
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('エラー: $e')),
+          );
+        }
+      } finally {
+        if (mounted) {
+          setState(() => _isLoading = false);
+        }
+      }
+    }
   }
 }
